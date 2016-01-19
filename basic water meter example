@@ -1,0 +1,689 @@
+/***********************************************************************************
+ * WaterMeter.ino
+ * Version 0.2 Alpha
+ *
+ * A simple example which updates a thingspeak channel with a digital count
+ * every 30 seconds.
+ *
+ *
+ * Jadin Andrews
+ * jadinandrews@gmail.com
+ *
+ * 
+ *
+ * Work in progress:
+ *
+ * ./ Create functions to interface with EEPROM, need to create map as per the memory map I created.
+ * ./ Create time compare functions, to be used to send meter readings during day time only.
+ *    It seems Time.h already does this natively?
+ * ./ Optimise Energy usage AS MUCH AS POSSIBLE. Unit must never deplete battery, and should never
+ *    initiate gprs communication if the available energy is at a critical level.
+ *    Arduino must monitor battery carfully, keeping track of cycles and perhaps internal resistance
+ *    decay over time. At some point, arduino must request new battery.
+ * ./ Implement heuristic analysis engine, to monitor water consumption for anomalies.
+ *    This may require a bit of historical data to perfect. Perhaps a simple threshold value,
+ *    if water usage is high for an hour or so, maybe more.
+ * ./ Unit must send emergency notices, sms, if something wierd happens, water pipe burst detected etc.
+ * ./ Most functions need to be void or bools. Ints should be used only where there is a reason to do so.
+ * ./ Declare functions at the top and define them at the bottom.
+ * ./ At some point I will need to implement versioning. Right now things seem to be changing too frequently.
+ * ./ If memory becomes a problem, Common strings and char arrays could be declared as constants for all functions to use.
+ * ./ It might be useful to go through all functions and get them down to bare metal states, maybe.
+ * ./ Extend some of the capabilities, perhaps add support for energy monitoring (may need an external dedicated atmega328 for that)
+ * ./ implement a (crude) M-Bus interface, for working with more advanced meters.
+ * ./ port code to work over wifi, ethernet or sd cards. ( or a combination) It would be nice to think about zigbee or bluetooth.
+ *    maybe even rfl2401 could be great.
+ *
+ *../priority stuff
+ * ./ null terminators please. I'm tired.\0
+ *
+ * ./ I'm getting very confused. need to give all functions more specific names.
+ * ./ Get all time and date functions working propperly, as well as timeCmpr(), which will be used extensively
+ *    in the heuristic engine. Most of this seems like it can be pulled directly from time.h, but I may prefer
+ *    to write my own versions, purely out of scholar curiosity.
+ * ./ Rewrite gprsSend function, from the ground up.
+ * ./ Write code to interface with EEPROM as per EEPROM memory mappings created.
+ * ./ Make a decision on whether the WDT is a good Idea or not, perhaps measure current consumption to see the effects.
+ * ./ Rewrite the main loop, taking into account time, battery(or available energy), and other data.
+ *
+ ***********************************************************************************/
+ 
+#include <GPRS_Shield_Arduino.h>
+#include <SoftwareSerial.h>
+#include <Wire.h>
+#include <Suli.h>
+#include <EEPROM.h>
+#include <avr/sleep.h>
+#include <avr/sleep.h>
+#include <avr/power.h>
+#include <avr/wdt.h>
+
+#define PIN_TX    7
+#define PIN_RX    8
+#define BAUDRATE  9600
+// Interrupt 0 attached to digital pin 2.
+#define INTERUPT_PIN 0
+// Temporary LED output for indicating external interrupts.
+#define pin 12
+// SEND_INTERVAL is how often to send the meter reading in multiples of 8s.
+// IE: an interval of 10 is equal to roughly 80 seconds.
+#define SEND_INTERVAL 0
+// The WDT increments this every 8s.
+// The loop will reset this to zero if a meter reading is succesfuly sent to the server,
+// else a reset will be triggered in case the code locks up.
+volatile int watchdog = 0;
+
+const char* KEY = "RKV7BMBKA6RG538C";
+const char*  HOST = "api.thingspeak.com";
+char timebuf[20];
+
+volatile unsigned long count = 0;
+volatile unsigned long eepromValue = 0;
+
+//Debouncing Time in Milliseconds
+#define debouncing_time 150
+volatile unsigned long last_micros;
+
+// Create the Gprs entity
+// MTN: mymtn //CELL-C: internet
+const char* APN = "internet";
+GPRS gprs(PIN_TX, PIN_RX, BAUDRATE, APN, "", "");
+
+/**
+  * resetFunc will reset the arduino..
+  * Used by the WDT to (hopefully) trigger a reset if the cpu ever locks up.
+  *
+  * I have no clue how it works, but, I think it modifes the return address
+  * when called, effectively causing the arduino to restart. (Perhaps similar to "goto 0"?)
+  * need to investigate if the stack is properly freed.
+  *
+  */
+void(* resetFunc)(void) = 0;
+
+void setup()
+{
+  setupWDT();
+  pinMode(pin, OUTPUT);
+  attachInterrupt(INTERUPT_PIN, pulsecount, RISING);
+  Serial.begin(9600);
+  Serial.println("Init");
+  Serial.println(sim900_power(1));
+  // Checks if sim900 is responsive, checks CFUN=1, and checks sim status
+  gprs.init();
+  get_network_Time();
+  eepromValue = EEPROMReadlong(0);
+}
+
+void loop()
+{
+  if (watchdog >= SEND_INTERVAL)
+  {
+    if (0 == sim900_power(1))
+    {
+      get_network_Time();
+      getTime();
+      updateEeprom();
+      // if timebuf - lasttime > 1 day && batteryState()
+      gprs_send(eepromValue, timebuf, KEY);
+    } 
+    Serial.println(timebuf);
+    Serial.print(" ");
+    Serial.print(eepromValue);
+    Serial.println();
+    
+    if(!gprsGetDateStamp(timebuf, HOST))
+    {
+      Serial.println("fail");
+    }
+    getTime();
+    Serial.println(timebuf);
+    if (setSim900RTC(timebuf) == 0)
+    {
+      Serial.println("Success in setting RTC");
+      Serial.println(timebuf);
+      delay(100);
+      getTime();
+      delay(100);
+      Serial.println(timebuf);
+    }
+    else
+    {
+      Serial.println("Failure");
+    }
+    delay(100);
+    sim900_power(0);
+    watchdog = 0;
+  }
+  else
+  {
+    updateEeprom();
+  }
+  sleep();
+}
+
+/**
+  * The main gprs update function, it expects two arguments at the moment.
+  * An ascii string which is the field 1 to be sent to thingspeak
+  * And a timestamp in ISO 8601 format.
+  * Returns 0 on success, -1 on failure. (Still to be implemented)
+  *
+  * Rewrite entire function from scratch. Needs to send multiple fields passed via args.
+  * 
+  * If I insstead pass this function an array and count, perhaps this function 
+  * could update multiple thingspeak fields? Also, it's probably better to pass
+  * it the thingspeak key and perhaps the host as well..
+  *
+  * Batch update is possible with the following syntax:
+  * /update?api_key=RKV7BMBKA6RG538C&field1=10&created_at=2011-07-18%2001:02:03&timezone=Africa/Johannesburg&field1=19&created_at=2011-07-18%2001:22:03&timezone=Africa/Johannesburg
+  *
+  * Lots of work needed here. Find out if thingspeak will accept over 500 entries in a single GET request?
+  * Catch the server response to check for success.
+  * If Data successfully sent, reset the reading count in EEPROM to zero.
+  *
+  */
+int gprs_send(unsigned long val, const char* timestamp, const char* apiKey)
+{
+
+  if (gprsjoin() && gprsconnect())
+  {
+      // Buff size should be exact or else gprs.send() will return false.
+      // By using the underlying sim900_send_function, I could negate the need for a fixed buffer entirely.
+      char buff[128];
+      Serial.println(sizeof(buff));
+      sprintf(buff, "GET /update?api_key=%s&field2=%.10lu&created_at=%s&timezone=Africa/Johannesburg HTTP/1.0\r\n\r\n", apiKey, val, timebuf);
+      Serial.println(buff);
+      return gprs.send(buff, sizeof(buff) - 1);
+      delay(100);
+  }
+  else
+  {
+    return false;
+  }
+  gprs.close();
+  gprs.disconnect();
+}
+
+/**
+  * Turns the sim900 on or off depending on arguments supplied.
+  * Arguments are expected as ints, 1 is for power on, 0 for power off.
+  * The function will try to check the status of the sim900 to avoid 
+  * switching it unecessarily.
+  * 
+  * Returns 0 on success, 1 if the sim900 appeared to already be in the state
+  * and -1 if it completely failed to achieve the requested state. (Possible comms error)
+  *
+  * This relies on check_sim900(), which is rather unnecessary considering gprs_init() 
+  * performs the same function. -Revise.
+  *
+  */
+int sim900_power(int option)
+{
+  pinMode(9, OUTPUT);
+  digitalWrite(9, LOW);
+  int counter = 0;
+  int state = check_sim900();
+  
+  if (option == 1)
+  {
+    if (state == 0)
+    {
+      return 1;
+    }
+    else
+    {
+      while (state != 0 && counter < 3)
+      {
+        digitalWrite(9,HIGH);
+        delay(1000);
+        digitalWrite(9,LOW);
+        counter++;
+        delay(3000);
+        state = check_sim900();
+      }
+      if (state != 0)
+      {
+        return -1;
+      }
+      else
+      {
+        return 0;
+      }
+    }    
+  }
+  else if (0 == option)
+  {
+    if (state == -1)
+    {
+      return 1;
+    }
+    else
+    {
+      while (state == 0 && counter < 3)
+      {
+        digitalWrite(9, HIGH);
+        delay(1000);
+        digitalWrite(9, LOW);
+        counter++;
+        delay(3000);
+        state = check_sim900();
+      }
+      if (state == 0)
+      {
+        return -1;
+      }
+      else
+      {
+        return 0;
+      }
+    }
+  }
+}
+
+/**
+  * Request time from the sim900's RTC.
+  * Passes time in ISO 8601 format to timebuf.
+  * Returns 0 on success, -1 if err.
+  *
+  */
+int getTime()
+{
+  if (0 == sim900_check_with_cmd("AT+CCLK?\r\n", "+CCLK: \"", DEFAULT_TIMEOUT, CMD))
+  {
+    sim900_read_buffer(&timebuf[2], 17, DEFAULT_TIMEOUT);
+    timebuf[0] = 50;
+    timebuf[1] = 48;
+    timebuf[4] = 45;
+    timebuf[7] = 45;
+    timebuf[10] = 32;
+    return 0;
+    //2015-08-12 14:20:30
+  }
+  else
+  {
+    return -1;
+  }
+}
+
+/** 
+  * Configures the sim900 to sync time with the GSM network.
+  * Returns 0 if success, -1 if err.
+  * This is too unreliable, not all networks support Local Time Stamps.
+  * It works on MTN, not Cell C. (Vodacom, Telkom - untested)
+  * Consider deprecating, querying time from HOST http header seems far more reliable.
+  * The RTC on the sim900 could be updated with an accuracy of roughly a minute or so,
+  * which seems fine for the purpose. 
+  * 0 is off
+  *
+  */
+int get_network_Time()
+{
+  return sim900_check_with_cmd("AT+CLTS=0\r\n","OK",DEFAULT_TIMEOUT,CMD);
+}
+
+/**
+  * setSim900RTC updates the sim900 RTC with the supplied
+  * datestamp.
+  *
+  * Be careful of the format expected by the sim900:
+  * "yy/MM/dd,hh:mm:ss(+\-)zz" wherecharachters indicate year (last two
+  * digits), month, day, hour, minutes, seconds and timezone (indicates the 
+  * difference, expressed in quarters of an hour between the local time and GMT;
+  * range -47~+48) EG: "15/09/04,16:04:30+08" = GMT + 2 hours.
+  *
+  */
+bool setSim900RTC(char* timestamp)
+{
+  //0123456789012345678
+  //2015-08-12 14:20:30 format from this inside this function. to
+  //15/09/04,16:04:30+08
+
+  sim900_send_cmd("AT+CCLK=\"");
+  /*
+  sim900_send_cmd(&timestamp[2]);
+  sim900_send_cmd(&timestamp[3]);
+  sim900_send_cmd("/");
+  sim900_send_cmd(&timestamp[5]);
+  sim900_send_cmd(&timestamp[6]);
+  sim900_send_cmd("/");
+  sim900_send_cmd(&timestamp[8]);
+  sim900_send_cmd(&timestamp[9]);
+  sim900_send_cmd(",");
+  for (int i = 11; i < 19; i++)
+  {
+    sim900_send_cmd(&timestamp[i]);
+  }
+  */
+  if (sim900_check_with_cmd("\"15/09/04,16:04:30+08\"\r\n", "OK", DEFAULT_TIMEOUT, CMD) == 0)
+  {
+    return true;
+  }
+  else
+  {
+    return false;
+  }
+}
+
+
+/**
+  * Check if sim900 is responsive.
+  * Returns 0 if success, -1 if err.
+  * This is unnecessary, gprs.init() does this and more,
+  * consider deprecating.
+  *
+  */
+int check_sim900()
+{
+  return sim900_check_with_cmd("AT\r\n","OK",DEFAULT_TIMEOUT,CMD);
+}
+
+/**
+  * Tries to join gprs twice, returns true on success,
+  * false on failure.
+  * This is an unnecessary abstraction, consider deprecating it.
+  *
+  */
+bool gprsjoin()
+{
+  if (gprs.join() == true)
+  {
+    return true;
+  }
+  else
+  {
+    return gprs.join();
+  }
+}
+/**
+  * Tries to connect gprs to TCP twice, returns true on success
+  * false on failure.
+  * This is an unnecessary abstraction, consider deprecating it.
+  *
+  */
+bool gprsconnect()
+{
+  if (gprs.connect(TCP, HOST, 80) == true)
+  {
+    return true;
+  }
+  else
+  {
+    return gprs.connect(TCP, HOST, 80);
+  }
+}
+
+/**
+  * Updates the EEPROM if there is a reason to do so.
+  * This will need some work in the future in order to
+  * Store up to 500 deltas's in EEPROM as well as error flags
+  * and other data.
+  *
+  */
+void updateEeprom()
+{
+  if (count > 0)
+  {
+    eepromValue = EEPROMReadlong(0);
+    if (eepromValue != count)
+    {
+      count += eepromValue;
+      EEPROMWritelong(0, count);
+      count = 0;
+    }
+  }
+}
+
+/**
+  * ISR that gets executed on external interrupt 0,
+  * Debounces input, increments the temporary count variable
+  * and toggles the LED state.
+  *
+  */
+void pulsecount()
+{
+  //Debouncing
+  if((long)(micros() - last_micros) >= debouncing_time * 1000)
+  {
+     count++;
+     last_micros = micros();
+     digitalWrite(pin, !digitalRead(pin));
+  }
+}
+
+/**
+  * Reads 4 bytes from EEPROM and returns them as a long to the calling function.
+  * Expects the address of the first byte of the long in EEPROM as it's main argument.
+  *
+  */
+long EEPROMReadlong(long address)
+{
+  long four = EEPROM.read(address);
+  long three = EEPROM.read(address + 1);
+  long two = EEPROM.read(address + 2);
+  long one = EEPROM.read(address + 3);
+  return ((four << 0) & 0xFF) + ((three << 8) & 0xFFFF) + ((two << 16) & 0xFFFFFF) + ((one << 24) & 0xFFFFFFFF);
+}
+
+/**
+  * Writes a long as four bytes to EEPROM at the location
+  * specified by the argument.
+  *
+  */
+void EEPROMWritelong(int address, long value)
+{
+  //Decomposition from a long to 4 bytes by using bbiitwise opperation.
+  //One = Most significant -> Four = Least significant byte
+  byte four = (value & 0xFF);
+  byte three = ((value >> 8) & 0xFF);
+  byte two = ((value >> 16) & 0xFF);
+  byte one = ((value >> 24) & 0xFF);
+  
+  //Write the 4 bytes into the eeprom memory.
+  EEPROM.write(address, four);
+  EEPROM.write(address + 1, three);
+  EEPROM.write(address + 2, two);
+  EEPROM.write(address + 3, one);
+}
+
+/**
+  * Puts the Arduino Microprocessor to deep sleep.
+  * Only the WDT will remain functional, as well as external interrupts.
+  *
+  */
+void sleep()
+{
+  set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+  sleep_enable();
+  // Put arduino to sleep here
+  sleep_mode();
+  // The arduino will continue from here after waking
+  sleep_disable();
+}
+
+/**
+  * Setup the Watch Dog Timer and prescaler to execute an interrupt 
+  * every 8 seconds. The interrupt executes the WDT_vect ISR
+  * defined bellow.
+  *
+  */
+void setupWDT()
+{
+  // Clear the reset flag.
+  MCUSR &= ~(1<<WDRF);
+  
+  // In order to change WDE or the prescaler, we need to
+  // set WDCE (This will allow updates for 4 clock cycles).
+  WDTCSR |= (1<<WDCE) | (1<<WDE);
+
+  // Set new watchdog timeout prescaler value
+  // 8.0 seconds
+  WDTCSR = 1<<WDP0 | 1<<WDP3;
+  
+  // Enable the WD interrupt.
+  WDTCSR |= _BV(WDIE);
+}
+
+/**
+  * The WDT_vect routine is called by the WDT interrupt.
+  * The Arduino will be reset once a day in case of lock ups.
+  *
+  */
+ISR(WDT_vect)
+{
+   watchdog++;
+   if (watchdog >= 10000)
+   {
+     resetFunc();
+   }
+}
+
+/**
+  * gprsGetDateStamp initiates a gprs connection (probably shouldn't, it seems rather large)
+  * and gets the datestamp from the HOST http header.
+  *
+  * Writes the result to the supplied timestamp char array,
+  * Connects to thesupplied HOST.
+  *
+  * Returns true on success, false on failure.
+  *
+  */
+
+bool gprsGetDateStamp(char* timeStamp, const char* HOST)
+{
+    const char http_cmd[] = "GET / HTTP/1.1\r\n\r\n"; //bad http request to get time from http
+    char Time[25]; //where http time will be stored
+    byte tries = 0;
+    bool success = false;
+    if(gprs.init() == 0)
+    {
+      while(false == success && tries < 3)
+      {
+        success =  gprs.join();
+        delay(500);
+        tries++;
+      }
+      if (success)
+      {
+        if(gprs.connect(TCP,HOST, 80))
+        {
+          gprs.send(http_cmd, sizeof(http_cmd)-1);
+          sim900_wait_for_resp("Date: ", DEFAULT_TIMEOUT, CMD);
+          sim900_wait_for_resp(", ", DEFAULT_TIMEOUT, CMD);
+          int ret = gprs.recv(Time, sizeof(Time)-1);
+          Time[ret] = '\0';
+          dateConvert(Time, timeStamp);
+        }
+        else
+        {
+          success = false;
+        }
+      }
+    gprs.close();
+    gprs.disconnect();
+    }
+    return success;
+}
+
+/**
+  * dateConvert converts from http date format to ISO8601 format.
+  * useful when extracting timestamps from http headers.
+  *
+  * Expects two arguments.
+  *
+  * source[25] contains the date string in
+  * http format like: "01 Sep 2015 13:48:21 GMT". The DAY has been 
+  * omitted as it's not needed, be sure to clean the source before
+  * converting. This may be added in future if I find the code needed again.
+  * 
+  * destination[20] is where the resulting converted date string will be
+  * stored like: "2000-01-01 00:00:57"
+  *
+  */
+void dateConvert(char* source, char* destination)
+{
+    strncpy(&destination[0], &source[7], 4);
+    strncpy(&destination[4], "-", 1);
+    sprintf(&destination[5],"%.2i",findMonth(source));
+    strncpy(&destination[7], "-", 1);
+    strncpy(&destination[8], &source[0], 2);
+    strncpy(&destination[10], &source[11], 9);
+}
+
+/**
+  * findMonth searches a string for the first occurance
+  * of a month as defined in the months array.
+  *
+  * queryString is the string or array you want to check for 
+  * containing a month.
+  *
+  * Returns -1 on failure, or the numeric representation of the month
+  * on success
+  *
+  */
+int findMonth(const char* queryString)
+{
+  const char* months[12] =
+  {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+  int index = 0;
+  int state = -1;
+  int len = strlen(queryString);
+  if (len > 0)
+  {
+    while(state <= 0 && index < len - 1)
+    {
+      for (int i = 0; i < 12; i++)
+      {
+        if (searchInArray(queryString, index, 3, months[i]))
+        {
+          state = i + 1;
+        }
+      }
+      index++;
+    }
+  }
+  return state;
+}
+
+/**
+  * searchInArray finds a supplied search query in an array of strings.
+  *
+  * searchQuery is the string you want to search for,
+  * searchArray is the array in which you want to search for. 
+  * queryIndex is the position in the searchQuery you want to
+  * start the search from, can be left as zero.
+  * queryLength is the number of chars that you want a match for,
+  * starting from the zeroth index of searchQuery, or from the queryIndex.
+  * If it is left as zero, the length of searchQuery will be used by default.
+  *
+  * Returns true on success, false otherwise.
+  *
+  */
+bool searchInArray(const char* searchQuery, int queryIndex, int queryLength, const char* searchArray)
+{
+  if (queryLength <= 0)
+  {
+    queryLength = strlen(searchQuery);
+  }
+    if (queryIndex <= 0)
+  {
+    queryIndex = 0;
+  }
+  byte sum = 0;
+  byte i = 0;
+  bool found = false;
+  while (true)
+  {
+    char c = searchArray[i];
+    sum = (c == searchQuery[sum + queryIndex]) ? sum+1 : 0;
+    if (sum == queryLength)
+    {
+      found = true;
+      break;
+    }
+    else if (sum != queryLength && i >= queryLength-1)
+    {
+      break;
+    }
+    i++;
+  }
+  return found;
+}
