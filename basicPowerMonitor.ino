@@ -9,14 +9,13 @@
 
   EthernetClient client;  
   byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED};
-  unsigned long myChannelNumber = 40245;
-  const char * myWriteAPIKey = "9GEACIUME9OOLRIC";
+  unsigned long myChannelNumber = xxxxx;
+  const char * myWriteAPIKey = "xxxxxxxxxxxx";
 
 void setup() {
   //Serial.begin(9600);
   //Serial.println("Energy Monitor Initializing");
-  Ethernet.begin(mac);  
-  delay(60000); // Wait for TPlink to acquire wlan
+  Ethernet.begin(mac);
   ThingSpeak.begin(client);
   circuit_1.current(1, 30);
   circuit_2.current(2, 30);
