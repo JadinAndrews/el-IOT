@@ -1,8 +1,8 @@
-# elIOT
+# el-IOT
 
-elIOT is not yet anything special, it will be a collecction of code examples that work together to bring your IOT projects to life.
+el-IOT is not yet anything special, it will be a collecction of code examples that work together to bring your IOT projects to life.
 
-There will be a few basic components that make up elIOT, but basically elIOT will be made up of a very simpe structure, with only two roles distinguished. There is only the Server, and Clients. AnyTHING can be a client, I decided to be purposefully ambiguous, because a THING, can be anything. It doesn't matter if it's an arduino, raspberry pi, esp8266 or even a web app. I consider those to all be THINGS, in the domain of elIOT. The server will function as the backbone that manages all the house keeping and keeps THINGS under controll.
+There will be a few basic components that make up el-IOT, but basically el-IOT will be made up of a very simpe structure, with only two roles distinguished. There is only the Server, and Clients. AnyTHING can be a client, I decided to be purposefully ambiguous, because a THING, can be anything. It doesn't matter if it's an arduino, raspberry pi, esp8266 or even a web app. I consider those to all be THINGS, in the domain of el-IOT. The server will function as the backbone that manages all the house keeping and keeps THINGS under controll.
 
 The server, will be made up of a collection of programs, most importantly a Mosquitto MQTT broker will handle the bulk of the communication between THINGS. A node.js app will write subscribed communication into a mongodb, and will also respond to websockets requests (web app THINGS) for information in the db.
 
