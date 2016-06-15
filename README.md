@@ -1,26 +1,11 @@
-# el-IOT
-A simple framework, not yet, with advanced functions, not yet, for creating things with the SIM900 family of GSM/GPRS shields and breakouts.
+# elIOT
 
-This is a framework I decided to work on after creating a few functions to interface with a SIM900 GSM unit. 
-It started out as a water meter project, but it is going to turn into a framework as I get time to organise things.
-For now, the best way to see what this library is capable of is to read the comments inside the basic water meter example.
+elIOT is not yet anything special, it will be a collecction of code examples that work together to bring your IOT projects to life.
 
-Please note, this project is in a state of extreme infancy, I do not care if or how you use my code, just understand that
-I do not gaurauntee everything works. 
+There will be a few basic components that make up elIOT, but basically elIOT will be made up of a very simpe structure, with only two roles distinguished. There is only the Server, and Clients. AnyTHING can be a client, I decided to be purposefully ambiguous, because a THING, can be anything. It doesn't matter if it's an arduino, raspberry pi, esp8266 or even a web app. I consider those to all be THINGS, in the domain of elIOT. The server will function as the backbone that manages all the house keeping and keeps THINGS under controll.
 
-I especially do not expect anyone to find this, but hope you find it useful... ;)
+The server, will be made up of a collection of programs, most importantly a Mosquitto MQTT broker will handle the bulk of the communication between THINGS. A node.js app will write subscribed communication into a mongodb, and will also respond to websockets requests (web app THINGS) for information in the db.
 
-Basic usage, Upload the sketch to arduino, remember to change the thingspeak api key.
+I will provide a few clients that run on either arduino's (electricity meters/ water meters etc) or esp8266's (temparature sensors). Further I will provide a simple dashboard THING, that will publish to mosquitto and subscribe for live updates on stats. I am not sure how far I wan to take this concept, it would keep everything rather simple and one dimensional if I forget about serving historical data through a websocket. It might be cool to let the mosquitto handle ALL communication? so a request for information will be a simple publish to a certain topic, and the payload would contain the request for the node.js app, which would then respond by publishing the request to another certain topic? Seems cool and simple to me.
 
-What it does?
-
-All it does is count pulses. That's it. And uploads them to a thingspeak channel. I created a few functions that would make the sketch as reliable as possible for collecting telemetry data, a WDT that resets the arduino if it locks up. 
-
-There are also a bunch of other features I was/am working on, like using the eeprom to store timestamps of up to 500 readings incase there is a communication failure. There are some time retrieval functions I was working on, they aren't very reliable at the moment. Retreiving time from the cellular network proved the most unreliable as not all networks support this. Therefore, I have resorted to retreiving time from HTTP headers, and comparing it with the RTC on the sim900. Of course, you could add an external RTC, but that would increase the part count of the project.
-
-I have also tried to place a major focus on energy effeciency. Since the project is intended to be powered by a solar cell and either a LiPo or supercapacitor, and also considering that I originally intended to deploy thousands of these units, I wanted them to be as independant as possible.
-
-Ideally they would be cheap, reliable water meters that can detect problems before a utility bill scares you away.
-I would like to add support for the M-bus at some point to interface with more advanced meters, as well as support for gas monitoring and other things beyond that.
-
-At some point a central server would also need to be created from scratch as relying on thingspeak is not an option for individuals that want to really customize this to their clients.
+Finally, this is an educational project, if you like it, please help out, but don't expect anything special just yet. If you're looking for something functional, look at lelylan. This is just my attempt to create something that will be useful to me.
