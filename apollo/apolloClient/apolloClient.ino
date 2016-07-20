@@ -286,6 +286,11 @@ ISR(WDT_vect)
    {
      updateNow = true;
    }
+   // Quick Lock up watch Dawg.
+   else if (updateCounter * 8 / 60 >= updateInterval)
+   {
+    resetFunc();
+   }
 }
 
 /**
