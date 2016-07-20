@@ -1,12 +1,5 @@
 #! /bin/bash
-avr-objcopy -I ihex -O binary $1 temp.bin
+avr-objcopy -I ihex -O binary $1 TEMP.BIN
+./test
 
-function num2bin() {
-   printf $(printf %.$(($2*2))x\\n $1|
-        sed 's/\([0-9a-f][0-9a-f]\)/\\x\1/g')|
-        awk -F '' '{ printf $4$3$2$1 }'
-}
-
-num2bin $(wc -c < ./temp.bin) 2 > FIRMWARE.BIN
-cat temp.bin >> FIRMWARE.BIN
-rm ./temp.bin
+rm ./TEMP.BIN

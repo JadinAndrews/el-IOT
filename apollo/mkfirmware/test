@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 import os
 
-inputFile = open('IN.BIN', 'rb')
-outputFile = open('OUT.BIN', 'wb')
+inputFile = open('TEMP.BIN', 'rb')
+outputFile = open('FIRMWARE.BIN', 'wb')
 
 data = inputFile.read()
 
@@ -11,19 +11,17 @@ def fletcher_16(data, modulus=255):
     numbers = data
     a = b = 0
     for number in numbers:
-        #print(number)
         a = (a + number) % modulus
         b = (a + b) % modulus
     print(a)
     print(b)
-    outputFile.write(a.to_bytes(2, byteorder='big', signed=True))
-    outputFile.write(b.to_bytes(2, byteorder='big', signed=True))
-    return hex((a << 8) | b)[2:].upper().zfill(4)
+    outputFile.write(a.to_bytes(1, byteorder='big', signed=False))
+    outputFile.write(b.to_bytes(1, byteorder='big', signed=False))
 
 
-outputFile.write(os.path.getsize('IN.BIN').to_bytes(2, byteorder='big', signed=True))
+outputFile.write(os.path.getsize('TEMP.BIN').to_bytes(2, byteorder='big', signed=False))
 fletcher_16(data[:])
-print(os.path.getsize('IN.BIN'))
+print(os.path.getsize('TEMP.BIN'))
 
 outputFile.write(data)
 outputFile.close()
