@@ -114,6 +114,7 @@ void loop() {
 
 void apolloUpdate() {
   if (updateNow) {
+    updateCounter = 0;
     resetEthernet(A5);
     delay(2000);
     Serial.println(F("apollo update Initialized"));
