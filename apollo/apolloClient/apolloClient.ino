@@ -222,37 +222,15 @@ void sendGET() //client function to send/receive GET request data.
 
       // Wait for http reponse and remove header
       Serial.println(F("waiting for data"));
-  while(!client.available()) {
-    delay(1); //wait for data
+  while(client.connected()) {
+    while(client.available()) {
+      if (checkBytes(crnl, byteStream)) {
+        goto end;
+      }
+    }
   }
+  end:
   Serial.println(F("done waiting for data"));
-  if (client.available()) { //connected or data available
-
-  // New waiting thing
-  Serial.println(F("calling checkBytes"));
-  checkBytes(crnl, byteStream);
-/*
-    char a = client.read();
-    Serial.print(a);    
-    if (a == '\r') {
-      char b = client.read();
-      Serial.print(b);
-      if (b == '\n') {
-        char c = client.read();
-        Serial.print(c);
-        if (c == '\r') {
-           char d = client.read();
-           Serial.print(d);
-           if (d == '\n') {
-               break;
-           }
-         }
-       }
-     }
-*/
-
-     
-  }
   } 
   else {
     Serial.println(F("connection failed")); //error message if no client connect
