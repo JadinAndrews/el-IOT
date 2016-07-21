@@ -153,20 +153,19 @@ void apolloUpdate() {
         }
       }
 end:
-
       Serial.println(F("done waiting for data"));
       Serial.println();
-      Serial.print(F("Prepended Value = "));
+      Serial.print(F("File size = "));
 
-      int prependedSize = twoBytes();
+      unsigned int prependedSize = twoBytes();
       unsigned int checksum = twoBytes();
 
       Serial.print(prependedSize);
       Serial.println(F(" bytes"));
-      Serial.print(F("Prepended checksum = "));
+      Serial.print(F("File checksum = "));
       Serial.println(checksum);
-      Serial.print(F("Data: "));
-      int i = 0;
+      Serial.print(F("Receiving Data: "));
+      int bytesReceived = 0;
       byte sum1 = 0;
       byte sum2 = 0;
 
@@ -174,53 +173,54 @@ end:
         while (client.available()) {
           byte e = client.read();
 
-          if (i == 0) {
+          if (bytesReceived == 0) {
             Serial.print(F("0% "));
           }
-          if (i % (prependedSize / 64) == 0) {
+          else if (bytesReceived % (prependedSize / 64) == 0) {
             Serial.print(F("."));
           }
-          if (i == prependedSize - 1) {
+          else if (bytesReceived == prependedSize - 1) {
             Serial.print(F(" 100%"));
           }
 
           file.write(e);
           sum1 = (sum1 + e) % 255;
           sum2 = (sum2 + sum1) % 255;
-          i++;
+          bytesReceived++;
         }
       }
+
       unsigned int computedChecksum = sum1 << 8;
       computedChecksum |= sum2;
-      
-      Serial.println();
-      Serial.print("Computed Checksum = ");
-      Serial.print(computedChecksum);
 
-      file.close();
       Serial.println();
-      Serial.print(i);
-      Serial.println(F(" Bytes Received."));
-      if (prependedSize <= 0 || prependedSize != i || checksum != computedChecksum) {
-        Serial.println(F("ERROR RECEIVING FIRMWARE!"));
+      Serial.print(F("Computed Checksum = "));
+      Serial.println(computedChecksum);
+
+      if (prependedSize == bytesReceived && checksum == computedChecksum) {
+        Serial.println(F("File check: OK"));
       }
-      else {
-        Serial.println(F("SUCCESS!"));
+      else if (checksum != computedChecksum) {
+        Serial.println(F("File check: CHECKSUM ERROR!"));
       }
+      else if (prependedSize != bytesReceived) {
+        Serial.println(F("File check: FILE SIZE ERROR!"));
+      }
+
       if (!client.connected()) {
         Serial.println(F("Disconecting from update server"));
         client.stop();
       }
 
+
+      file.close();
       //Disable the SD card:
       pinMode(CHIP_SELECT, OUTPUT);
       digitalWrite(CHIP_SELECT, HIGH);
-
-      if (i > 4096) {
-        Serial.println(F("Resetting..."));
-        delay(200);
-        resetFunc();
-      }
+      Serial.println(F("Resetting..."));
+      delay(200);
+      resetFunc();
+      
     }
     else {
       Serial.println(F("connection failed")); //error message if no client connect
