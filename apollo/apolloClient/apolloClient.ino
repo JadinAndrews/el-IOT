@@ -56,7 +56,6 @@ void(* resetFunc)(void) = 0;
 
 
 char byteStream() {
-  //Serial.println("byteStream called");
   char a = client.read();
   Serial.print(a);
   return a;
@@ -104,7 +103,6 @@ void setup() {
 }
 
 void loop() {
-  //Serial.println(F("THIS PROGRAM HAS BEEN UPDATED!!!!"));
   // Leave this here
   apolloUpdate();
 
@@ -120,7 +118,7 @@ void apolloUpdate() {
   if (updateNow) {
     resetEthernet(A5);
     delay(2000);
-    Serial.println(F("apollo update Initialized"));
+    Serial.println(F("Apollo init"));
 
     // Init SD Card
     // initialize the SD card
@@ -128,7 +126,6 @@ void apolloUpdate() {
 
     // initialize a FAT16 volume
     Fat16::init(&card);
-
 
     // create a new file
     Fat16 file;
@@ -144,7 +141,6 @@ void apolloUpdate() {
       client.println(); //end of get request
 
       // Wait for http reponse and remove header
-      Serial.println(F("waiting for data"));
       while (client.connected()) {
         while (client.available()) {
           if (checkBytes(crnl, byteStream)) {
@@ -153,7 +149,6 @@ void apolloUpdate() {
         }
       }
 end:
-      Serial.println(F("done waiting for data"));
       Serial.println();
       Serial.print(F("File size = "));
 
@@ -194,21 +189,19 @@ end:
       computedChecksum |= sum2;
 
       Serial.println();
-      Serial.print(F("Computed Checksum = "));
-      Serial.println(computedChecksum);
-
+      Serial.print(F("File check: "));
       if (prependedSize == bytesReceived && checksum == computedChecksum) {
-        Serial.println(F("File check: OK"));
+        Serial.println(F("OK"));
       }
       else if (checksum != computedChecksum) {
-        Serial.println(F("File check: CHECKSUM ERROR!"));
+        Serial.println(F("CHECKSUM ERROR!"));
       }
       else if (prependedSize != bytesReceived) {
-        Serial.println(F("File check: FILE SIZE ERROR!"));
+        Serial.println(F("SIZE ERROR!"));
       }
 
       if (!client.connected()) {
-        Serial.println(F("Disconecting from update server"));
+        Serial.println(F("Disconecting"));
         client.stop();
       }
 
@@ -223,7 +216,7 @@ end:
       
     }
     else {
-      Serial.println(F("connection failed")); //error message if no client connect
+      Serial.println(F("Connection failed")); //error message if no client connect
       Serial.println();
       Serial.println(F("Resetting..."));
       delay(200);
