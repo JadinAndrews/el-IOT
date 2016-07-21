@@ -38,59 +38,23 @@ SdCard card;
 const int CHIP_SELECT = 4;
 const char updateServer[] = "www.debcal.co.za";
 const char frimwareRequest[] = "GET /apollo/FIRMWARE.BIN HTTP/1.1";
+
 // How often to check for updates in minutes.
 int updateInterval = 1;
 bool updateNow = false;
 int updateCounter = 0;
 
-int temp = 0;
+// The carriage return, newline sequence that separates http headers from content
+char crnl[] = {'\r', '\n', '\r', '\n'};
 
 EthernetClient client;
 IPAddress ip(10, 0, 0, 24);
 byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED};
 
 /**
-   ElCheapo reset function.
+   ElCheapo reset function, should probably use the WDT instead, right..
 */
 void(* resetFunc)(void) = 0;
-
-
-char byteStream() {
-  char a = client.read();
-  Serial.print(a);
-  return a;
-
-}
-
-char crnl[] = {'\r', '\n', '\r', '\n'};
-// Counts the amount of mathching bytes found in the stream.
-// It can not be local to checkBytes
-int matchingBytes = 0;
-
-bool checkBytes(char* bytes, char (*stream)()) {
-  int byteCount = 0;
-  while (matchingBytes < 4) {
-    matchingBytes = bytes[matchingBytes] == stream() ? matchingBytes + 1 : 0;
-    byteCount++;
-    if (byteCount >= 2048) {
-      return false;
-    }
-    delay(1);
-  }
-  return (matchingBytes == 4); // a bit pedantic
-}
-
-
-int twoBytes() {
-  int tempVal = 0;
-  byte one = client.read();
-  byte two = client.read();
-  tempVal = one << 8;
-  tempVal |= two;
-  return tempVal;
-}
-
-
 
 void setup() {
   resetEthernet(A5);
@@ -105,11 +69,6 @@ void setup() {
 void loop() {
   // Leave this here
   apolloUpdate();
-
-  if (temp < updateCounter) {
-    Serial.println(updateCounter * 8);
-    temp = updateCounter;
-  }
 
 }
 
@@ -143,7 +102,7 @@ void apolloUpdate() {
       // Wait for http reponse and remove header
       while (client.connected()) {
         while (client.available()) {
-          if (checkBytes(crnl, byteStream)) {
+          if (checkBytes(crnl, 4, byteStream)) {
             goto end;
           }
         }
@@ -152,8 +111,10 @@ end:
       Serial.println();
       Serial.print(F("File size = "));
 
-      unsigned int prependedSize = twoBytes();
-      unsigned int checksum = twoBytes();
+      // The first two bytes are the size of the file
+      unsigned int prependedSize = twoBytesToInt(byteStream);
+      // The next two bytes are the checksum
+      unsigned int checksum = twoBytesToInt(byteStream);
 
       Serial.print(prependedSize);
       Serial.println(F(" bytes"));
@@ -213,7 +174,7 @@ end:
       Serial.println(F("Resetting..."));
       delay(200);
       resetFunc();
-      
+
     }
     else {
       Serial.println(F("Connection failed")); //error message if no client connect
@@ -245,7 +206,6 @@ void setupWDT()
   // Enable the WD interrupt.
   WDTCSR |= _BV(WDIE);
 }
-
 
 /**
     The WDT_vect routine is called by the WDT interrupt.
@@ -285,5 +245,44 @@ void resetEthernet(int pin) {
 
 
 
+
+/**
+ * A little wrapper function which can be pointed to.
+ */
+char byteStream() {
+  return client.read();
+}
+
+/**
+ * Used to count the amount of mathching bytes found in the stream.
+ * It can not be local to checkBytes
+ */
+int matchingBytes = 0;
+
+/**
+ * Searches a byteStream for a sequence of bytes
+ */
+bool checkBytes(char* sequence, int sequenceLength, char (*stream)()) {
+  int byteCount = 0;
+  while (matchingBytes < sequenceLength) {
+    matchingBytes = sequence[matchingBytes] == stream() ? matchingBytes + 1 : 0;
+    byteCount++;
+    // Allow some sort of default behaviour
+    if (byteCount >= 2048) {
+      return false;
+    }
+  }
+  return (matchingBytes == sequenceLength); // a bit pedantic
+}
+
+/**
+ * Reads two consecutive bytes from the byteStream, and returns a little endian int.
+ */
+int twoBytesToInt(char (*stream)()) {
+  int tempVal = 0;
+  tempVal = stream() << 8;
+  tempVal |= stream();
+  return tempVal;
+}
 
 
