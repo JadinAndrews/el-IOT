@@ -56,11 +56,15 @@ byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED};
 */
 void(* resetFunc)(void) = 0;
 
+int twoBytesToInt();
+
 void setup() {
   resetEthernet(A5);
   Serial.begin(9600);
   delay(500);
+
   Serial.println(F("Started"));
+
   setupWDT();
   // put your setup code here, to run once:
 
@@ -77,6 +81,7 @@ void apolloUpdate() {
   if (updateNow) {
     resetEthernet(A5);
     delay(2000);
+
     Serial.println(F("Apollo init"));
 
     // Init SD Card
@@ -88,12 +93,15 @@ void apolloUpdate() {
 
     // create a new file
     Fat16 file;
-    const char name[] = "FIRMWARE.BIN";
-    file.open(name, O_CREAT | O_WRITE);
+    const char fileName[] = "FIRMWARE.BIN";
+    file.open(fileName, O_CREAT | O_WRITE);
 
     Serial.println(F("Getting new Firmware file"));
+
     if (client.connect(updateServer, 80)) {  //starts client connection, checks for connection
+
       Serial.println(F("Connected to Update Server"));
+
       client.println(F("GET /apollo/FIRMWARE.BIN HTTP/1.1")); //download text
       client.println(F("Host: www.debcal.co.za"));
       client.println(F("Connection: close"));  //close 1.1 persistent connection
@@ -108,19 +116,21 @@ void apolloUpdate() {
         }
       }
 end:
+
       Serial.println();
       Serial.print(F("File size = "));
 
       // The first two bytes are the size of the file
-      unsigned int prependedSize = twoBytesToInt(byteStream);
+      unsigned int prependedSize = twoBytesToInt();
       // The next two bytes are the checksum
-      unsigned int checksum = twoBytesToInt(byteStream);
+      unsigned int checksum = twoBytesToInt();
 
       Serial.print(prependedSize);
       Serial.println(F(" bytes"));
       Serial.print(F("File checksum = "));
       Serial.println(checksum);
       Serial.print(F("Receiving Data: "));
+
       int bytesReceived = 0;
       byte sum1 = 0;
       byte sum2 = 0;
@@ -151,18 +161,33 @@ end:
 
       Serial.println();
       Serial.print(F("File check: "));
+
       if (prependedSize == bytesReceived && checksum == computedChecksum) {
+
         Serial.println(F("OK"));
+
       }
       else if (checksum != computedChecksum) {
+
         Serial.println(F("CHECKSUM ERROR!"));
+
+        Serial.println(F("Removing file"));
+        file.remove();
+
       }
       else if (prependedSize != bytesReceived) {
+
         Serial.println(F("SIZE ERROR!"));
+
+        Serial.println(F("Removing file"));
+        file.remove();
+
       }
 
       if (!client.connected()) {
+
         Serial.println(F("Disconecting"));
+
         client.stop();
       }
 
@@ -171,7 +196,9 @@ end:
       //Disable the SD card:
       pinMode(CHIP_SELECT, OUTPUT);
       digitalWrite(CHIP_SELECT, HIGH);
+
       Serial.println(F("Resetting..."));
+
       delay(200);
       resetFunc();
 
@@ -179,7 +206,12 @@ end:
     else {
       Serial.println(F("Connection failed")); //error message if no client connect
       Serial.println();
+
+      Serial.println(F("Removing file"));
+      file.remove();
+
       Serial.println(F("Resetting..."));
+
       delay(200);
       resetFunc();
     }
@@ -218,9 +250,10 @@ ISR(WDT_vect)
   if (updateCounter * 8 / 15 >= updateInterval)
   {
     updateNow = true;
+    updateCounter = 0;
   }
   // Quick Lock up watch Dawg.
-  else if (updateCounter * 8 / 60 >= updateInterval)
+  else if (updateCounter * 8 / 60 >= updateInterval * 2)
   {
     resetFunc();
   }
@@ -233,9 +266,9 @@ ISR(WDT_vect)
 void resetEthernet(int pin) {
   pinMode(pin, OUTPUT);
   digitalWrite(pin, LOW);
-  delay(500);
+  delay(1000);
   digitalWrite(pin, HIGH);
-  delay(500);  // start the Ethernet connection:
+  delay(1000);  // start the Ethernet connection:
   if (Ethernet.begin(mac) == 0) {
     //Serial.println("Failed to configure Ethernet using DHCP");
     // try to congifure using IP address instead of DHCP:
@@ -243,32 +276,31 @@ void resetEthernet(int pin) {
   }
 }
 
-
-
-
 /**
- * A little wrapper function which can be pointed to.
- */
+   A little wrapper function which can be pointed to.
+*/
 char byteStream() {
-  return client.read();
+  char a = client.read();
+  Serial.print(a);
+  return a;
 }
 
 /**
- * Used to count the amount of mathching bytes found in the stream.
- * It can not be local to checkBytes
- */
+   Used to count the amount of mathching bytes found in the stream.
+   It can not be local to checkBytes
+*/
 int matchingBytes = 0;
 
 /**
- * Searches a byteStream for a sequence of bytes
- */
+   Searches a byteStream for a sequence of bytes
+*/
 bool checkBytes(char* sequence, int sequenceLength, char (*stream)()) {
   int byteCount = 0;
   while (matchingBytes < sequenceLength) {
     matchingBytes = sequence[matchingBytes] == stream() ? matchingBytes + 1 : 0;
     byteCount++;
     // Allow some sort of default behaviour
-    if (byteCount >= 2048) {
+    if (byteCount >= 4096) {
       return false;
     }
   }
@@ -276,12 +308,14 @@ bool checkBytes(char* sequence, int sequenceLength, char (*stream)()) {
 }
 
 /**
- * Reads two consecutive bytes from the byteStream, and returns a little endian int.
- */
-int twoBytesToInt(char (*stream)()) {
+   Reads two consecutive bytes from the byteStream, and returns a little endian int.
+*/
+int twoBytesToInt() {
   int tempVal = 0;
-  tempVal = stream() << 8;
-  tempVal |= stream();
+  byte one = client.read();
+  byte two = client.read();
+  tempVal = one << 8;
+  tempVal |= two;
   return tempVal;
 }
 
