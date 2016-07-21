@@ -159,15 +159,12 @@ end:
       Serial.print(F("Prepended Value = "));
 
       int prependedSize = twoBytes();
-      byte checkSum1 = client.read();
-      byte checkSum2 = client.read();
+      unsigned int checksum = twoBytes();
 
       Serial.print(prependedSize);
       Serial.println(F(" bytes"));
-      Serial.print(F("Prepended Sum1 = "));
-      Serial.println(checkSum1);
-      Serial.print(F("Prepended Sum2 = "));
-      Serial.println(checkSum2);
+      Serial.print(F("Prepended checksum = "));
+      Serial.println(checksum);
       Serial.print(F("Data: "));
       int i = 0;
       byte sum1 = 0;
@@ -193,17 +190,18 @@ end:
           i++;
         }
       }
+      unsigned int computedChecksum = sum1 << 8;
+      computedChecksum |= sum2;
+      
       Serial.println();
-      Serial.print("Sum1 = ");
-      Serial.print(sum1);
-      Serial.print("; Sum2 = ");
-      Serial.println(sum2);
+      Serial.print("Computed Checksum = ");
+      Serial.print(computedChecksum);
 
       file.close();
       Serial.println();
       Serial.print(i);
       Serial.println(F(" Bytes Received."));
-      if (prependedSize <= 0 || prependedSize != i || checkSum1 != sum1 || checkSum2 != sum2) {
+      if (prependedSize <= 0 || prependedSize != i || checksum != computedChecksum) {
         Serial.println(F("ERROR RECEIVING FIRMWARE!"));
       }
       else {
