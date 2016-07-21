@@ -57,7 +57,6 @@ void(* resetFunc)(void) = 0;
 
 char byteStream() {
   //Serial.println("byteStream called");
-  delayMicroseconds(500);
   char a = client.read();
   Serial.print(a);
   return a;
@@ -65,21 +64,27 @@ char byteStream() {
 }
 
 char crnl[] = {'\r', '\n', '\r', '\n'};
+// Counts the amount of mathching bytes found in the stream.
+// It can not be local to checkBytes
+int matchingBytes = 0;
 
 bool checkBytes(char* bytes, char (*stream)()) {
-  int check = 0;
-  while(check < 4) {
-    check = bytes[check] == stream() ? check + 1 : 0;
+  int byteCount = 0;
+  while(matchingBytes < 4) {
+    matchingBytes = bytes[matchingBytes] == stream() ? matchingBytes + 1 : 0;
+    byteCount++;
+    if (byteCount >= 2048) {
+      return false;
+    }
     delay(1);
   }
-  return (check == 4);
+  return (matchingBytes == 4); // a bit pedantic
 }
 
 
 int twoBytes() {
   int tempVal = 0;
   byte one = client.read();
-  delayMicroseconds(400);
   byte two = client.read();
   tempVal = one << 8;
   tempVal |= two;
@@ -92,7 +97,7 @@ void setup() {
   resetEthernet(A5);
   Serial.begin(9600);
   delay(500);
-  Serial.println("Started");
+  Serial.println(F("Started"));
   setupWDT();
   // put your setup code here, to run once:
 
@@ -102,7 +107,6 @@ void loop() {
   //Serial.println(F("THIS PROGRAM HAS BEEN UPDATED!!!!"));
   // Leave this here
   apolloUpdate();
-  // put your main code here, to run repeatedly:
 
   if (temp < updateCounter) {
     Serial.println(updateCounter * 8);
@@ -135,41 +139,44 @@ void apolloUpdate() {
 
     
     Serial.println();
-    Serial.print("Prepended Value = ");
+    Serial.print(F("Prepended Value = "));
     int prependedSize = twoBytes();
     byte checkSum1 = client.read();
     byte checkSum2 = client.read();
     Serial.print(prependedSize);
-    Serial.println(" bytes");
-    Serial.print("Prepended Sum1 = ");
+    Serial.println(F(" bytes"));
+    Serial.print(F("Prepended Sum1 = "));
     Serial.println(checkSum1);
-    Serial.print("Prepended Sum2 = ");
+    Serial.print(F("Prepended Sum2 = "));
     Serial.println(checkSum2);
     
     
     
-    Serial.print(F("Data:"));
+    Serial.print(F("Data: "));
       int i = 0;
       byte sum1 = 0;
       byte sum2 = 0;
+
+      while(client.connected()) {
+        while(client.available()) {
+          byte e = client.read();
+
+          if (i == 0) {
+            Serial.print(F("0% "));
+          }
+          if(i % (prependedSize / 64) == 0) {
+            Serial.print(F("."));
+          }
+          if(i == prependedSize - 1) {
+            Serial.print(F(" 100%"));
+          }
       
-    while(client.available()) {
-      i++;
-      byte e = client.read();
-      
-      if(i % 32 == 0) {
-        Serial.print(F("."));
+          file.write(e);
+          sum1 = (sum1 + e) % 255;
+          sum2 = (sum2 + sum1) % 255;
+          i++;
+        }
       }
-      if(i % 1024 == 0) {
-        Serial.println();
-        Serial.print(F("     "));
-      }
-      
-      file.write(e);
-      sum1 = (sum1 + e) % 255;
-      sum2 = (sum2 + sum1) % 255;
-      delayMicroseconds(600);
-    }
     Serial.println();
     Serial.print("Sum1 = ");
     Serial.print(sum1);
@@ -181,10 +188,10 @@ void apolloUpdate() {
     Serial.print(i);
     Serial.println(F(" Bytes Received."));
     if (prependedSize <= 0 || prependedSize != i || checkSum1 != sum1 || checkSum2 != sum2) {
-      Serial.println("ERROR RECEIVING FIRMWARE!");
+      Serial.println(F("ERROR RECEIVING FIRMWARE!"));
     }
     else {
-      Serial.println("SUCCESS!");
+      Serial.println(F("SUCCESS!"));
     }
     if (!client.connected()) {
       Serial.println(F("Disconecting from update server"));
@@ -214,15 +221,15 @@ void sendGET() //client function to send/receive GET request data.
     client.println(); //end of get request
 
       // Wait for http reponse and remove header
-      Serial.println("waiting for data");
+      Serial.println(F("waiting for data"));
   while(!client.available()) {
     delay(1); //wait for data
   }
-  Serial.println("done waiting for data");
+  Serial.println(F("done waiting for data"));
   if (client.available()) { //connected or data available
 
   // New waiting thing
-  Serial.println("calling checkBytes");
+  Serial.println(F("calling checkBytes"));
   checkBytes(crnl, byteStream);
 /*
     char a = client.read();
