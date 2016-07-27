@@ -1,0 +1,21 @@
+Verbose mode on.
+Connected to ftp.debcal.co.za.
+220---------- Welcome to Pure-FTPd [privsep] [TLS] ----------
+220-You are user number 1 of 50 allowed.
+220-Local time is now 11:41. Server port: 21.
+220-This is a private system - No anonymous login
+220-IPv6 connections are also welcome on this server.
+220 You will be disconnected after 15 minutes of inactivity.
+Remote system type is UNIX.
+Using binary mode to transfer files.
+331 User apollo@debcal.co.za OK. Password required
+230 OK. Current restricted directory is /
+250 Deleted FIRMWARE.BIN
+200 TYPE is now 8-bit binary
+227 Entering Passive Mode (154,0,175,45,6,232)
+150 Accepted data connection
+226-File successfully transferred
+226 0.228 seconds (measured here), 86.59 Kbytes per second
+20252 bytes sent in 7.4e-05 seconds (261 Mbytes/s)
+221-Goodbye. You uploaded 20 and downloaded 0 kbytes.
+221 Logout.

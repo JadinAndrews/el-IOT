@@ -18,16 +18,13 @@
    Email: jadinandrews@gmail.com
 
    TODO: This is like the first working version, with most features in place, lots can still be improved.
-   TODO: Need a way to store the downloaded file in a temporary file, and then rename it to FIRMWARE.BIN
-         only if the download passes the checks. I don't think this is an easy task with the fat16 lib,
-         but maybe it won't be too bad to simply copy a temp file into FIRMWARE.BIN?
 
    NOTE: This sketch relies on the Seedstudio ethernet shieal v2.0, with an integrated SD card slot.
          For other cobinations, just make sure your cs pins don't conflict, otherwise everything should
          work just fine.
 
  * */
-
+//#define DEBUG
 
 #include <SPI.h>
 #include <EthernetV2_0.h>
@@ -48,31 +45,36 @@ int updateCounter = 0;
 char crnl[] = {'\r', '\n', '\r', '\n'};
 
 EthernetClient client;
-IPAddress ip(10, 0, 0, 24);
+IPAddress ip(192, 168, 0, 105);
 byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED};
-
-/**
-   ElCheapo reset function, should probably use the WDT instead, right..
-*/
-void(* resetFunc)(void) = 0;
 
 int twoBytesToInt();
 
 void setup() {
+  #ifdef DEBUG
+    Serial.begin(9600);
+    Serial.println(F("Started with FIRMWARE v16"));
+    delay(100);
+  #endif
   resetEthernet(A5);
-  Serial.begin(9600);
-  delay(500);
 
-  Serial.println(F("Started"));
-
-  setupWDT();
+  //setupWDT();
   // put your setup code here, to run once:
 
 }
 
 void loop() {
+  updateCounter++;
+  if (updateCounter >= 2)
+  {
+    updateNow = true;
+    updateCounter = 0;
+  }
   // Leave this here
   apolloUpdate();
+  
+
+  delay(1000);
 
 }
 
@@ -82,8 +84,9 @@ void apolloUpdate() {
     resetEthernet(A5);
     delay(2000);
 
+  #ifdef DEBUG
     Serial.println(F("Apollo init"));
-
+  #endif
     // Init SD Card
     // initialize the SD card
     card.begin(CHIP_SELECT, SPI_HALF_SPEED);
@@ -96,12 +99,14 @@ void apolloUpdate() {
     const char fileName[] = "FIRMWARE.BIN";
     file.open(fileName, O_CREAT | O_WRITE);
 
+  #ifdef DEBUG
     Serial.println(F("Getting new Firmware file"));
-
+  #endif
     if (client.connect(updateServer, 80)) {  //starts client connection, checks for connection
 
+  #ifdef DEBUG
       Serial.println(F("Connected to Update Server"));
-
+  #endif
       client.println(F("GET /apollo/FIRMWARE.BIN HTTP/1.1")); //download text
       client.println(F("Host: www.debcal.co.za"));
       client.println(F("Connection: close"));  //close 1.1 persistent connection
@@ -117,20 +122,22 @@ void apolloUpdate() {
       }
 end:
 
+  #ifdef DEBUG
       Serial.println();
       Serial.print(F("File size = "));
-
+  #endif
       // The first two bytes are the size of the file
       unsigned int prependedSize = twoBytesToInt();
       // The next two bytes are the checksum
       unsigned int checksum = twoBytesToInt();
 
+  #ifdef DEBUG
       Serial.print(prependedSize);
       Serial.println(F(" bytes"));
       Serial.print(F("File checksum = "));
       Serial.println(checksum);
       Serial.print(F("Receiving Data: "));
-
+  #endif
       int bytesReceived = 0;
       byte sum1 = 0;
       byte sum2 = 0;
@@ -139,6 +146,7 @@ end:
         while (client.available()) {
           byte e = client.read();
 
+  #ifdef DEBUG
           if (bytesReceived == 0) {
             Serial.print(F("0% "));
           }
@@ -148,7 +156,7 @@ end:
           else if (bytesReceived == prependedSize - 1) {
             Serial.print(F(" 100%"));
           }
-
+  #endif
           file.write(e);
           sum1 = (sum1 + e) % 255;
           sum2 = (sum2 + sum1) % 255;
@@ -159,35 +167,42 @@ end:
       unsigned int computedChecksum = sum1 << 8;
       computedChecksum |= sum2;
 
+  #ifdef DEBUG
       Serial.println();
       Serial.print(F("File check: "));
-
+  #endif
       if (prependedSize == bytesReceived && checksum == computedChecksum) {
 
+  #ifdef DEBUG
         Serial.println(F("OK"));
-
+  #endif
       }
       else if (checksum != computedChecksum) {
 
+  #ifdef DEBUG
         Serial.println(F("CHECKSUM ERROR!"));
 
         Serial.println(F("Removing file"));
+  #endif
         file.remove();
 
       }
       else if (prependedSize != bytesReceived) {
 
+  #ifdef DEBUG
         Serial.println(F("SIZE ERROR!"));
 
         Serial.println(F("Removing file"));
+  #endif
         file.remove();
 
       }
 
       if (!client.connected()) {
 
+  #ifdef DEBUG
         Serial.println(F("Disconecting"));
-
+  #endif
         client.stop();
       }
 
@@ -197,23 +212,27 @@ end:
       pinMode(CHIP_SELECT, OUTPUT);
       digitalWrite(CHIP_SELECT, HIGH);
 
+  #ifdef DEBUG
       Serial.println(F("Resetting..."));
-
+  #endif
       delay(200);
-      resetFunc();
+      reset(WDTO_8S);
 
     }
     else {
+  #ifdef DEBUG
       Serial.println(F("Connection failed")); //error message if no client connect
       Serial.println();
 
       Serial.println(F("Removing file"));
+  #endif
       file.remove();
 
+  #ifdef DEBUG
       Serial.println(F("Resetting..."));
-
+  #endif
       delay(200);
-      resetFunc();
+      reset(WDTO_8S);
     }
   }
 }
@@ -222,6 +241,7 @@ end:
 /**
    setupWDT sets up the watchdog timer bits and scaler to execute every 8s.
 */
+/*
 void setupWDT()
 {
   // Clear the reset flag.
@@ -238,12 +258,29 @@ void setupWDT()
   // Enable the WD interrupt.
   WDTCSR |= _BV(WDIE);
 }
+*/
+/**
+   Hard Reset the MCU
+*/
+void reset(uint8_t prescaler) {
+  
+  #ifdef DEBUG
+  Serial.println("WATCH DOG RESET");
+  delay(200);
+  #endif
+
+  wdt_enable(prescaler);
+  while (1) {
+    delay(200);
+    }
+}
 
 /**
     The WDT_vect routine is called by the WDT interrupt.
     The Arduino will be reset once the update interval has been exceeded.
 
 */
+/*
 ISR(WDT_vect)
 {
   updateCounter++;
@@ -258,6 +295,7 @@ ISR(WDT_vect)
     resetFunc();
   }
 }
+*/
 
 /**
    resetEthernet reset the ethernet controller.
@@ -281,7 +319,10 @@ void resetEthernet(int pin) {
 */
 char byteStream() {
   char a = client.read();
+  
+  #ifdef DEBUG
   Serial.print(a);
+  #endif
   return a;
 }
 

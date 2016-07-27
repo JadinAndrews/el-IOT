@@ -1,5 +1,15 @@
 #! /bin/bash
 avr-objcopy -I ihex -O binary $1 TEMP.BIN
-./test
+./theGreatPrepender
 
 rm ./TEMP.BIN
+
+echo "
+ verbose
+ open ftp.debcal.co.za
+ user apollo@debcal.co.za }qk^mDE~S=~W
+ delete FIRMWARE.BIN
+ binary
+ put FIRMWARE.BIN
+ bye
+" | ftp -n -p > ./ftplogs/ftp_$$.log

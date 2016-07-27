@@ -13,8 +13,6 @@ def fletcher_16(data, modulus=255):
     for number in numbers:
         a = (a + number) % modulus
         b = (a + b) % modulus
-    print(a)
-    print(b)
     outputFile.write(a.to_bytes(1, byteorder='big', signed=False))
     outputFile.write(b.to_bytes(1, byteorder='big', signed=False))
 
