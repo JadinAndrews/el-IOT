@@ -24,7 +24,7 @@
          work just fine.
 
  * */
-//#define DEBUG
+#define DEBUG
 
 #include <SPI.h>
 #include <EthernetV2_0.h>
@@ -50,16 +50,43 @@ byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED};
 
 int twoBytesToInt();
 
+void pulser(int count, int timeMs) {
+  pinMode(6, OUTPUT);
+  pinMode(5, OUTPUT);
+  digitalWrite(6, LOW);
+
+  for (int i = 0; i < count; i++) {
+    for (int j = 0; j < 256; j++) {
+      analogWrite(5, j);
+      delay(timeMs);
+    }
+    for (int j = 255; j >= 0; j--) {
+      analogWrite(5, j);
+      delay(timeMs);
+    }
+  }
+}
+
+void flasher() {
+  pinMode(6, OUTPUT);
+  pinMode(5, OUTPUT);
+  digitalWrite(6, LOW);
+
+  for (int i = 0; i < 2; i++) {
+    digitalWrite(5, !digitalRead(5));
+    delay(1);
+  }
+}
+
 void setup() {
-  #ifdef DEBUG
-    Serial.begin(9600);
-    Serial.println(F("Started with FIRMWARE v16"));
-    delay(100);
-  #endif
+#ifdef DEBUG
+  Serial.begin(9600);
+  Serial.println(F("Started with FIRMWARE v16"));
+  delay(100);
+#endif
   resetEthernet(A5);
 
-  //setupWDT();
-  // put your setup code here, to run once:
+  pulser(3, 3);
 
 }
 
@@ -72,9 +99,10 @@ void loop() {
   }
   // Leave this here
   apolloUpdate();
-  
 
-  delay(1000);
+
+  //delay(1000);
+  pulser(5, 1);
 
 }
 
@@ -82,11 +110,11 @@ void loop() {
 void apolloUpdate() {
   if (updateNow) {
     resetEthernet(A5);
-    delay(2000);
+    pulser(4, 1);
 
-  #ifdef DEBUG
+#ifdef DEBUG
     Serial.println(F("Apollo init"));
-  #endif
+#endif
     // Init SD Card
     // initialize the SD card
     card.begin(CHIP_SELECT, SPI_HALF_SPEED);
@@ -99,14 +127,16 @@ void apolloUpdate() {
     const char fileName[] = "FIRMWARE.BIN";
     file.open(fileName, O_CREAT | O_WRITE);
 
-  #ifdef DEBUG
+#ifdef DEBUG
     Serial.println(F("Getting new Firmware file"));
-  #endif
+#endif
     if (client.connect(updateServer, 80)) {  //starts client connection, checks for connection
 
-  #ifdef DEBUG
+      pulser(2, 1);
+
+#ifdef DEBUG
       Serial.println(F("Connected to Update Server"));
-  #endif
+#endif
       client.println(F("GET /apollo/FIRMWARE.BIN HTTP/1.1")); //download text
       client.println(F("Host: www.debcal.co.za"));
       client.println(F("Connection: close"));  //close 1.1 persistent connection
@@ -122,22 +152,22 @@ void apolloUpdate() {
       }
 end:
 
-  #ifdef DEBUG
+#ifdef DEBUG
       Serial.println();
       Serial.print(F("File size = "));
-  #endif
+#endif
       // The first two bytes are the size of the file
       unsigned int prependedSize = twoBytesToInt();
       // The next two bytes are the checksum
       unsigned int checksum = twoBytesToInt();
 
-  #ifdef DEBUG
+#ifdef DEBUG
       Serial.print(prependedSize);
       Serial.println(F(" bytes"));
       Serial.print(F("File checksum = "));
       Serial.println(checksum);
       Serial.print(F("Receiving Data: "));
-  #endif
+#endif
       int bytesReceived = 0;
       byte sum1 = 0;
       byte sum2 = 0;
@@ -146,17 +176,18 @@ end:
         while (client.available()) {
           byte e = client.read();
 
-  #ifdef DEBUG
+#ifdef DEBUG
           if (bytesReceived == 0) {
             Serial.print(F("0% "));
           }
           else if (bytesReceived % (prependedSize / 64) == 0) {
             Serial.print(F("."));
+            flasher();
           }
           else if (bytesReceived == prependedSize - 1) {
             Serial.print(F(" 100%"));
           }
-  #endif
+#endif
           file.write(e);
           sum1 = (sum1 + e) % 255;
           sum2 = (sum2 + sum1) % 255;
@@ -167,42 +198,46 @@ end:
       unsigned int computedChecksum = sum1 << 8;
       computedChecksum |= sum2;
 
-  #ifdef DEBUG
+#ifdef DEBUG
       Serial.println();
       Serial.print(F("File check: "));
-  #endif
+#endif
       if (prependedSize == bytesReceived && checksum == computedChecksum) {
 
-  #ifdef DEBUG
+#ifdef DEBUG
         Serial.println(F("OK"));
-  #endif
+        pulser(1, 5);
+#endif
       }
       else if (checksum != computedChecksum) {
 
-  #ifdef DEBUG
+#ifdef DEBUG
         Serial.println(F("CHECKSUM ERROR!"));
 
         Serial.println(F("Removing file"));
-  #endif
+#endif
         file.remove();
+
+        pulser(10, 1);
 
       }
       else if (prependedSize != bytesReceived) {
 
-  #ifdef DEBUG
+#ifdef DEBUG
         Serial.println(F("SIZE ERROR!"));
 
         Serial.println(F("Removing file"));
-  #endif
+#endif
         file.remove();
+        pulser(10, 1);
 
       }
 
       if (!client.connected()) {
 
-  #ifdef DEBUG
+#ifdef DEBUG
         Serial.println(F("Disconecting"));
-  #endif
+#endif
         client.stop();
       }
 
@@ -212,38 +247,40 @@ end:
       pinMode(CHIP_SELECT, OUTPUT);
       digitalWrite(CHIP_SELECT, HIGH);
 
-  #ifdef DEBUG
+#ifdef DEBUG
       Serial.println(F("Resetting..."));
-  #endif
+#endif
       delay(200);
       reset(WDTO_8S);
 
     }
     else {
-  #ifdef DEBUG
+#ifdef DEBUG
       Serial.println(F("Connection failed")); //error message if no client connect
       Serial.println();
 
       Serial.println(F("Removing file"));
-  #endif
+#endif
       file.remove();
+      pulser(10, 1);
 
-  #ifdef DEBUG
+#ifdef DEBUG
       Serial.println(F("Resetting..."));
-  #endif
-      delay(200);
+#endif
+      pulser(1, 10);
       reset(WDTO_8S);
     }
   }
 }
 
 
+
 /**
    setupWDT sets up the watchdog timer bits and scaler to execute every 8s.
 */
 /*
-void setupWDT()
-{
+  void setupWDT()
+  {
   // Clear the reset flag.
   MCUSR &= ~(1 << WDRF);
 
@@ -257,22 +294,22 @@ void setupWDT()
 
   // Enable the WD interrupt.
   WDTCSR |= _BV(WDIE);
-}
+  }
 */
 /**
    Hard Reset the MCU
 */
 void reset(uint8_t prescaler) {
-  
-  #ifdef DEBUG
+
+#ifdef DEBUG
   Serial.println("WATCH DOG RESET");
   delay(200);
-  #endif
+#endif
 
   wdt_enable(prescaler);
   while (1) {
     delay(200);
-    }
+  }
 }
 
 /**
@@ -281,8 +318,8 @@ void reset(uint8_t prescaler) {
 
 */
 /*
-ISR(WDT_vect)
-{
+  ISR(WDT_vect)
+  {
   updateCounter++;
   if (updateCounter * 8 / 15 >= updateInterval)
   {
@@ -294,7 +331,7 @@ ISR(WDT_vect)
   {
     resetFunc();
   }
-}
+  }
 */
 
 /**
@@ -319,10 +356,10 @@ void resetEthernet(int pin) {
 */
 char byteStream() {
   char a = client.read();
-  
-  #ifdef DEBUG
+
+#ifdef DEBUG
   Serial.print(a);
-  #endif
+#endif
   return a;
 }
 
