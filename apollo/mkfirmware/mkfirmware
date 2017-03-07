@@ -6,8 +6,8 @@ rm ./TEMP.BIN
 
 echo "
  verbose
- open ftp.debcal.co.za
- user apollo@debcal.co.za }qk^mDE~S=~W
+ open ftp.site.com
+ user ftpuser password
  delete FIRMWARE.BIN
  binary
  put FIRMWARE.BIN
